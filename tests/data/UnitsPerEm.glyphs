@@ -1,0 +1,335 @@
+{
+.appVersion = "3039";
+DisplayStrings = (
+"",
+"A\012A",
+"",
+"",
+AOAA
+);
+classes = (
+{
+automatic = 1;
+code = "A O";
+name = Uppercase;
+}
+);
+customParameters = (
+{
+name = description;
+value = "\012\012From Old Portuguese conta, from Latin computō (“I calculate”).\012\0121. (mathematics) operation, calculation\0122. (mathematics) equation\0123. account (in a bank or computer)\0124. bead (small round object, especially those of a rosary)\0125. check (a bill, particularly at a restaurant)";
+}
+);
+date = "2020-12-01 11:22:55 +0000";
+familyName = UnitsPerEmTest;
+features = (
+{
+code = "pos @Uppercase <10 0 20 0>;\012";
+name = cpsp;
+}
+);
+fontMaster = (
+{
+alignmentZones = (
+"{800, 14}",
+"{720, 14}",
+"{560, 14}",
+"{0, -14}",
+"{-160, -16}"
+);
+ascender = 800;
+capHeight = 720;
+customParameters = (
+{
+name = typoAscender;
+value = 800;
+},
+{
+name = typoDescender;
+value = -160;
+},
+{
+name = typoLineGap;
+value = 240;
+},
+{
+name = winAscent;
+value = 800;
+},
+{
+name = winDescent;
+value = 200;
+},
+{
+name = hheaAscender;
+value = 800;
+},
+{
+name = hheaDescender;
+value = -160;
+},
+{
+name = hheaLineGap;
+value = 240;
+},
+{
+name = "Default Layer Width";
+value = "560";
+}
+);
+descender = -160;
+horizontalStems = (
+70
+);
+id = "83692D61-586C-413E-9B5A-1AF652750951";
+verticalStems = (
+80
+);
+xHeight = 560;
+}
+);
+glyphs = (
+{
+glyphname = A;
+lastChange = "2020-12-01 11:27:52 +0000";
+layers = (
+{
+anchors = (
+{
+name = bottom;
+position = "{280, 0}";
+},
+{
+name = ogonek;
+position = "{522, 0}";
+},
+{
+name = top;
+position = "{280, 720}";
+}
+);
+background = {
+paths = (
+{
+closed = 1;
+nodes = (
+"160 0 LINE",
+"160 240 LINE",
+"400 240 LINE",
+"400 0 LINE",
+"480 0 LINE",
+"480 640 LINE",
+"400 640 LINE",
+"400 320 LINE",
+"160 320 LINE",
+"160 640 LINE",
+"80 640 LINE",
+"80 0 LINE"
+);
+},
+{
+closed = 1;
+nodes = (
+"400 640 LINE",
+"400 720 LINE",
+"160 720 LINE",
+"160 640 LINE"
+);
+}
+);
+};
+hints = (
+{
+horizontal = 1;
+origin = "{0, 4}";
+type = Anchor;
+},
+{
+horizontal = 1;
+origin = "{0, 6}";
+type = Anchor;
+},
+{
+horizontal = 1;
+origin = "{0, 6}";
+target = "{0, 1}";
+type = Align;
+options = 4;
+},
+{
+horizontal = 1;
+origin = "{0, 4}";
+target = "{0, 6}";
+other1 = "{0, 7, 1, 1}";
+type = Interpolate;
+},
+{
+horizontal = 1;
+origin = "{0, 7, 1, 1}";
+target = "{0, 7, 1, 3}";
+type = TTStem;
+options = 4;
+},
+{
+horizontal = 1;
+origin = "{0, 4}";
+target = "{0, 6}";
+other1 = "{0, 1, 0, 7}";
+type = Interpolate;
+options = 4;
+}
+);
+layerId = "83692D61-586C-413E-9B5A-1AF652750951";
+paths = (
+{
+closed = 1;
+nodes = (
+"266 650 LINE",
+"433 0 LINE",
+"522 0 LINE",
+"323 720 LINE",
+"240 720 LINE",
+"37 0 LINE",
+"117 0 LINE",
+"294 650 LINE"
+);
+},
+{
+closed = 1;
+nodes = (
+"160 204 LINE",
+"400 204 LINE",
+"400 276 LINE",
+"160 276 LINE"
+);
+}
+);
+width = 560;
+}
+);
+unicode = 0041;
+},
+{
+glyphname = O;
+lastChange = "2020-12-01 11:27:56 +0000";
+layers = (
+{
+anchors = (
+{
+name = bottom;
+position = "{280, 0}";
+},
+{
+name = center;
+position = "{280, 360}";
+},
+{
+name = ogonek;
+position = "{342, 0}";
+},
+{
+name = top;
+position = "{280, 720}";
+},
+{
+name = topleft;
+position = "{20, 720}";
+},
+{
+name = topright;
+position = "{540, 720}";
+}
+);
+hints = (
+{
+horizontal = 1;
+origin = "{0, 5}";
+target = "{1, 5}";
+type = TTStem;
+options = 4;
+},
+{
+horizontal = 1;
+origin = "{0, 11}";
+target = "{1, 11}";
+type = TTStem;
+options = 4;
+}
+);
+layerId = "83692D61-586C-413E-9B5A-1AF652750951";
+paths = (
+{
+closed = 1;
+nodes = (
+"415 -10 OFFCURVE",
+"506 113 OFFCURVE",
+"506 360 CURVE SMOOTH",
+"506 599 OFFCURVE",
+"441 730 OFFCURVE",
+"280 730 CURVE SMOOTH",
+"133 730 OFFCURVE",
+"54 603 OFFCURVE",
+"54 360 CURVE SMOOTH",
+"54 104 OFFCURVE",
+"133 -10 OFFCURVE",
+"280 -10 CURVE SMOOTH"
+);
+},
+{
+closed = 1;
+nodes = (
+"191 60 OFFCURVE",
+"138 137 OFFCURVE",
+"138 360 CURVE SMOOTH",
+"138 584 OFFCURVE",
+"182 660 OFFCURVE",
+"280 660 CURVE SMOOTH",
+"379 660 OFFCURVE",
+"422 579 OFFCURVE",
+"422 360 CURVE SMOOTH",
+"422 138 OFFCURVE",
+"371 60 OFFCURVE",
+"280 60 CURVE SMOOTH"
+);
+}
+);
+width = 560;
+}
+);
+unicode = 004F;
+}
+);
+gridLength = 80;
+gridSubDivision = 80;
+instances = (
+{
+customParameters = (
+{
+name = "Scale to UPM";
+value = 2048;
+}
+);
+instanceInterpolations = {
+"83692D61-586C-413E-9B5A-1AF652750951" = 1;
+};
+name = Regular;
+}
+);
+kerning = {
+"83692D61-586C-413E-9B5A-1AF652750951" = {
+"@MMK_L_r" = {
+"@MMK_R_a" = -80;
+"@MMK_R_period" = -160;
+};
+A = {
+O = -25;
+};
+O = {
+A = -25;
+};
+};
+};
+unitsPerEm = 1000;
+versionMajor = 2;
+versionMinor = 0;
+}
