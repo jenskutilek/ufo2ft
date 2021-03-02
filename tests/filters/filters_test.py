@@ -1,17 +1,17 @@
-from __future__ import print_function, division, absolute_import
+from types import SimpleNamespace
+
+import pytest
+from fontTools.misc.loggingTools import CapturingLogHandler
 
 from ufo2ft.filters import (
-    getFilterClass,
-    BaseFilter,
-    loadFilters,
     UFO2FT_FILTERS_KEY,
+    BaseFilter,
+    getFilterClass,
+    loadFilterFromString,
+    loadFilters,
     logger,
 )
 
-from fontTools.misc.py23 import SimpleNamespace
-from fontTools.misc.loggingTools import CapturingLogHandler
-
-import pytest
 from ..testSupport import _TempModule
 
 
@@ -90,7 +90,7 @@ def test_loadFilters_custom_namespace(ufo):
     ufo.lib[UFO2FT_FILTERS_KEY][0]["namespace"] = "my_dangerous_filters"
 
     class SelfDestructFilter(FooBarFilter):
-        def filter(glyph):
+        def filter(self, glyph):
             # Don't try this at home!!! LOL :)
             # shutil.rmtree(os.path.expanduser("~"))
             return True
@@ -121,6 +121,26 @@ def test_loadFilters_args_unsupported(ufo):
         loadFilters(ufo)
 
     assert exc_info.match("unsupported")
+
+
+def test_loadFilters_args_as_keywords(ufo):
+    del ufo.lib[UFO2FT_FILTERS_KEY][0]["args"]
+    ufo.lib[UFO2FT_FILTERS_KEY][0]["kwargs"] = {"a": "foo", "b": "bar"}
+
+    _, [filter_obj] = loadFilters(ufo)
+
+    assert filter_obj.options.a == "foo"
+    assert filter_obj.options.b == "bar"
+
+
+def test_loadFilters_args_as_duplicated_keywords(ufo):
+    ufo.lib[UFO2FT_FILTERS_KEY][0]["args"] = ["foo"]
+    ufo.lib[UFO2FT_FILTERS_KEY][0]["kwargs"] = {"a": "foo", "b": "bar"}
+
+    with pytest.raises(TypeError) as exc_info:
+        loadFilters(ufo)
+
+    assert exc_info.match("duplicated")
 
 
 def test_loadFilters_include_all(ufo):
@@ -180,6 +200,33 @@ def test_loadFilters_kwargs_unsupported(ufo):
     assert exc_info.match("got an unsupported keyword")
 
 
+VALID_SPEC_STRINGS = [
+    "RemoveOverlapsFilter",
+    "PropagateAnchorsFilter(include=['a', 'b', 'c'])",
+    "ufo2ft.filters.fooBar::FooBarFilter(a='a', b='b', c=1)",
+]
+
+
+@pytest.mark.parametrize("spec", VALID_SPEC_STRINGS)
+def test_loadFilterFromString(spec, ufo):
+    philter = loadFilterFromString(spec)
+    assert callable(philter)
+
+
+def test_loadFilterFromString_args_missing(ufo):
+    with pytest.raises(TypeError) as info:
+        loadFilterFromString(
+            "ufo2ft.filters.fooBar::FooBarFilter(a='a', c=1)",
+        )
+    assert info.match("missing 1 required positional argument: 'b'")
+
+    with pytest.raises(TypeError) as info:
+        loadFilterFromString(
+            "ufo2ft.filters.fooBar::FooBarFilter(c=1)",
+        )
+    assert info.match("missing 2 required positional arguments: 'a', 'b'")
+
+
 def test_BaseFilter_repr():
     class NoArgFilter(BaseFilter):
         pass
@@ -198,11 +245,15 @@ def test_BaseFilter_repr():
         == "FooBarFilter('e', 'f', c=2.0, exclude=('z',))"
     )
 
-    f = lambda g: False
+    def f(g):
+        return False
+
     assert repr(
         FooBarFilter("g", "h", include=f)
     ) == "FooBarFilter('g', 'h', c=0, include={})".format(repr(f))
 
 
 if __name__ == "__main__":
+    import sys
+
     sys.exit(pytest.main(sys.argv))

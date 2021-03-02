@@ -1,16 +1,15 @@
-from __future__ import print_function, division, absolute_import, unicode_literals
-
-from fontTools.misc.py23 import BytesIO
-from fontTools.ttLib import TTFont
-from ufo2ft.constants import (
-    USE_PRODUCTION_NAMES,
-    GLYPHS_DONT_USE_PRODUCTION_NAMES,
-    KEEP_GLYPH_NAMES,
-)
 import enum
 import logging
 import re
+from io import BytesIO
 
+from fontTools.ttLib import TTFont
+
+from ufo2ft.constants import (
+    GLYPHS_DONT_USE_PRODUCTION_NAMES,
+    KEEP_GLYPH_NAMES,
+    USE_PRODUCTION_NAMES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ class CFFVersion(enum.IntEnum):
     CFF2 = 2
 
 
-class PostProcessor(object):
+class PostProcessor:
     """Does some post-processing operations on a compiled OpenType font, using
     info from the source UFO where necessary.
     """
@@ -32,10 +31,9 @@ class PostProcessor(object):
         COMPREFFOR = "compreffor"
         CFFSUBR = "cffsubr"
 
-    # keep defaulting to compreffor for CFF 1.0, use cffsubr for CFF2;
     # can override by passing explicit subroutinizer parameter to process method
     DEFAULT_SUBROUTINIZER_FOR_CFF_VERSION = {
-        1: SubroutinizerBackend.COMPREFFOR,
+        1: SubroutinizerBackend.CFFSUBR,
         2: SubroutinizerBackend.CFFSUBR,
     }
 
@@ -93,8 +91,8 @@ class PostProcessor(object):
 
         subroutinizer (Optional[str]):
           The name of the library to use for compressing CFF charstrings, if optimizeCFF
-          is True and CFF or CFF2 table is present. Choose between "compreffor" or
-          "cffsubr". By default "compreffor" is used for CFF 1, and "cffsubr" for CFF 2.
+          is True and CFF or CFF2 table is present. Choose between "cffsubr" or
+          "compreffor". By default "cffsubr" is used for both CFF 1 and CFF 2.
           NOTE: compreffor currently doesn't support input fonts with CFF2 table.
 
         compileTrueTypeHinting:
@@ -259,12 +257,14 @@ class PostProcessor(object):
         # use name derived from unicode value
         unicode_val = glyph.unicode
         if glyph.unicode is not None:
-            return "%s%04X" % ("u" if unicode_val > 0xFFFF else "uni", unicode_val)
+            return "{}{:04X}".format(
+                "u" if unicode_val > 0xFFFF else "uni", unicode_val
+            )
 
         # use production name + last (non-script) suffix if possible
         parts = glyph.name.rsplit(".", 1)
         if len(parts) == 2 and parts[0] in self.glyphSet:
-            return "%s.%s" % (
+            return "{}.{}".format(
                 self._build_production_name(self.glyphSet[parts[0]]),
                 parts[1],
             )
@@ -272,7 +272,7 @@ class PostProcessor(object):
         # use ligature name, making sure to look up components with suffixes
         parts = glyph.name.split(".", 1)
         if len(parts) == 2:
-            liga_parts = ["%s.%s" % (n, parts[1]) for n in parts[0].split("_")]
+            liga_parts = ["{}.{}".format(n, parts[1]) for n in parts[0].split("_")]
         else:
             liga_parts = glyph.name.split("_")
         if len(liga_parts) > 1 and all(n in self.glyphSet for n in liga_parts):
@@ -362,7 +362,8 @@ class PostProcessor(object):
 
 
 # Adapted from fontTools.cff.specializer.programToCommands
-# https://github.com/fonttools/fonttools/blob/babca16/Lib/fontTools/cffLib/specializer.py#L40-L122
+# https://github.com/fonttools/fonttools/blob/babca16
+# /Lib/fontTools/cffLib/specializer.py#L40-L122
 # When converting from CFF to CFF2 we need to drop the charstrings' widths.
 # This function returns a new charstring program without the initial width value.
 # TODO: Move to fontTools?

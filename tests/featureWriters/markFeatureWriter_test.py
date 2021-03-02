@@ -1,16 +1,18 @@
-from __future__ import print_function, division, absolute_import, unicode_literals
-from textwrap import dedent
 import logging
+import os
+from textwrap import dedent
+
+import pytest
+
+from ufo2ft.errors import InvalidFeaturesData
+from ufo2ft.featureCompiler import parseLayoutFeatures
 from ufo2ft.featureWriters import ast
 from ufo2ft.featureWriters.markFeatureWriter import (
     MarkFeatureWriter,
     NamedAnchor,
     parseAnchorName,
 )
-from ufo2ft.featureCompiler import parseLayoutFeatures
 
-import pytest
-import os
 from . import FeatureWriterTest
 
 
@@ -57,12 +59,7 @@ def test_NamedAnchor_invalid():
 
 
 def test_NamedAnchor_repr():
-    import sys
-
-    if sys.version_info >= (3,):
-        expected = "NamedAnchor(name='top', x=1.0, y=2.0)"
-    else:
-        expected = "NamedAnchor(name=u'top', x=1.0, y=2.0)"
+    expected = "NamedAnchor(name='top', x=1.0, y=2.0)"
     assert repr(NamedAnchor("top", 1.0, 2.0)) == expected
 
 
@@ -170,7 +167,7 @@ class MarkFeatureWriterTest(FeatureWriterTest):
 
         logger = "ufo2ft.featureWriters.markFeatureWriter.MarkFeatureWriter"
         with caplog.at_level(logging.WARNING, logger=logger):
-            fea = self.writeFeatures(testufo)
+            _ = self.writeFeatures(testufo)
 
         assert len(caplog.records) == 1
         assert "invalid ligature anchor 'top_1' in mark glyph" in caplog.text
@@ -255,6 +252,267 @@ class MarkFeatureWriterTest(FeatureWriterTest):
             } mkmk;
             """
         )
+
+    def test_insert_comment_before(self, testufo):
+        writer = MarkFeatureWriter()
+        testufo.features.text = dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            feature mark {
+                #
+                # Automatic Code
+                #
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+            } mark;
+            """
+        )
+        feaFile = parseLayoutFeatures(testufo)
+
+        assert writer.write(testufo, feaFile)
+
+        assert str(feaFile) == dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mark {
+                #
+                #
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+        # test append mode ignores insert marker
+        generated = self.writeFeatures(testufo, mode="append")
+        assert str(generated) == dedent(
+            """\
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_insert_comment_after(self, testufo):
+        writer = MarkFeatureWriter()
+        testufo.features.text = dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            feature mark {
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+                #
+                # Automatic Code
+                #
+            } mark;
+            """
+        )
+        feaFile = parseLayoutFeatures(testufo)
+
+        assert writer.write(testufo, feaFile)
+
+        assert str(feaFile) == dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            feature mark {
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+
+                #
+                #
+            } mark;
+
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+        # test append mode ignores insert marker
+        generated = self.writeFeatures(testufo, mode="append")
+        assert str(generated) == dedent(
+            """\
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_insert_comment_middle(self, testufo):
+        writer = MarkFeatureWriter()
+        testufo.features.text = dedent(
+            """\
+            markClass acutecomb <anchor 100 200> @MC_top;
+            feature mark {
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+                #
+                # Automatic Code
+                #
+                lookup mark2 {
+                    pos base a <anchor 150 250> mark @MC_top;
+                } mark2;
+            } mark;
+            """
+        )
+        feaFile = parseLayoutFeatures(testufo)
+
+        with pytest.raises(
+            InvalidFeaturesData,
+            match="Insert marker has rules before and after, feature mark "
+            "cannot be inserted.",
+        ):
+            writer.write(testufo, feaFile)
+
+        # test append mode ignores insert marker
+        generated = self.writeFeatures(testufo, mode="append")
+        assert str(generated) == dedent(
+            """\
+            markClass tildecomb <anchor 100 200> @MC_top;
+
+            feature mark {
+                lookup mark2base {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark2base;
+
+                lookup mark2liga {
+                    pos ligature f_i <anchor 100 500> mark @MC_top
+                        ligComponent <anchor 600 500> mark @MC_top;
+                } mark2liga;
+
+            } mark;
+
+            feature mkmk {
+                lookup mark2mark_top {
+                    @MFS_mark2mark_top = [acutecomb tildecomb];
+                    lookupflag UseMarkFilteringSet @MFS_mark2mark_top;
+                    pos mark tildecomb <anchor 100 300> mark @MC_top;
+                } mark2mark_top;
+
+            } mkmk;
+            """
+        )
+
+    def test_insert_comment_outside_block(self, testufo):
+        writer = MarkFeatureWriter()
+        testufo.features.text = dedent(
+            """\
+            #
+            # Automatic Code
+            #
+            """
+        )
+        feaFile = parseLayoutFeatures(testufo)
+
+        assert writer.write(testufo, feaFile)
+
+        testufo.features.text = dedent(
+            """\
+            #
+            # Automatic Code
+            #
+            markClass acutecomb <anchor 100 200> @MC_top;
+            feature mark {
+                lookup mark1 {
+                    pos base a <anchor 100 200> mark @MC_top;
+                } mark1;
+
+            } mark;
+            """
+        )
+        feaFile = parseLayoutFeatures(testufo)
+
+        assert writer.write(testufo, feaFile)
+
+        # test append mode
+        writer = MarkFeatureWriter(mode="append")
+        assert writer.write(testufo, feaFile)
 
     def test_mark_mkmk_features(self, testufo):
         writer = MarkFeatureWriter()  # by default both mark + mkmk are built
@@ -375,7 +633,7 @@ class MarkFeatureWriterTest(FeatureWriterTest):
                 } mark2mark_top;
 
             } mkmk;
-            """
+            """  # noqa: B950
         )
 
     def test_abvm_blwm_features(self, FontClass):
@@ -451,18 +709,18 @@ class MarkFeatureWriterTest(FeatureWriterTest):
                 } mark2base;
 
             } mark;
-            """
+            """  # noqa: B950
         )
 
     def test_all_features(self, testufo):
         ufo = testufo
         ufo.info.unitsPerEm = 1000
 
-        cedilla = ufo.newGlyph("cedillacomb").anchors = [
+        ufo.newGlyph("cedillacomb").anchors = [
             {"name": "_bottom", "x": 10, "y": -5},
             {"name": "bottom", "x": 20, "y": -309},
         ]
-        c = ufo.newGlyph("c").appendAnchor({"name": "bottom", "x": 240, "y": 0})
+        ufo.newGlyph("c").appendAnchor({"name": "bottom", "x": 240, "y": 0})
 
         dottedCircle = ufo.newGlyph("dottedCircle")
         dottedCircle.unicode = 0x25CC
@@ -596,7 +854,7 @@ class MarkFeatureWriterTest(FeatureWriterTest):
                 } mark2mark_top;
 
             } mkmk;
-            """
+            """  # noqa: B950
         )
 
     def test_mark_mkmk_features_with_GDEF(self, testufo):

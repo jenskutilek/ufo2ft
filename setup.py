@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 
-from __future__ import print_function, division, absolute_import
 import sys
-from setuptools import setup, find_packages
 
+from setuptools import find_packages, setup
 
 needs_pytest = {"pytest", "test"}.intersection(sys.argv)
 pytest_runner = ["pytest_runner"] if needs_pytest else []
@@ -37,7 +36,7 @@ setup(
     ],
     extras_require={
         "pathops": ["skia-pathops>=0.5.1"],
-        "cffsubr": ["cffsubr>=0.2.7"],
+        "cffsubr": ["cffsubr>=0.2.8"],
     },
     python_requires=">=3.6",
     classifiers=[

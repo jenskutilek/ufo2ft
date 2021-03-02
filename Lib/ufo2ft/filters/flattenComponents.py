@@ -1,15 +1,15 @@
-from fontTools.misc.transform import Transform
-from ufo2ft.filters import BaseFilter
-
 import logging
 
+from fontTools.misc.transform import Transform
+
+from ufo2ft.filters import BaseFilter
 
 logger = logging.getLogger(__name__)
 
 
 class FlattenComponentsFilter(BaseFilter):
     def __call__(self, font, glyphSet=None):
-        if super(FlattenComponentsFilter, self).__call__(font, glyphSet):
+        if super().__call__(font, glyphSet):
             modified = self.context.modified
             if modified:
                 logger.info("Flattened composite glyphs: %i" % len(modified))
@@ -36,15 +36,18 @@ def _flattenComponent(glyphSet, component):
     """Returns a list of tuples (baseGlyph, transform) of nested component."""
 
     glyph = glyphSet[component.baseGlyph]
-    if not glyph.components:
+    # Any contour will cause components to be decomposed
+    if not glyph.components or len(glyph) > 0:
         transformation = Transform(*component.transformation)
         return [(component.baseGlyph, transformation)]
 
     all_flattened_components = []
     for nested in glyph.components:
         flattened_components = _flattenComponent(glyphSet, nested)
-        for i, (_, tr) in enumerate(flattened_components):
-            tr = tr.transform(component.transformation)
-            flattened_components[i] = (flattened_components[i][0], tr)
+        for i, (name, tr) in enumerate(flattened_components):
+            flat_tr = Transform(*component.transformation)
+            flat_tr = flat_tr.translate(tr.dx, tr.dy)
+            flat_tr = flat_tr.transform((tr.xx, tr.xy, tr.yx, tr.yy, 0, 0))
+            flattened_components[i] = (name, flat_tr)
         all_flattened_components.extend(flattened_components)
     return all_flattened_components

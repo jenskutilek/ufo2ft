@@ -1,18 +1,18 @@
-from __future__ import print_function, division, absolute_import, unicode_literals
-import io
-from fontTools.misc.py23 import *
-from ufo2ft import (
-    compileOTF,
-    compileTTF,
-    compileInterpolatableTTFs,
-    compileVariableTTF,
-    compileVariableCFF2,
-)
-import warnings
 import difflib
+import io
 import os
 import sys
+
 import pytest
+
+from ufo2ft import (
+    compileInterpolatableTTFs,
+    compileOTF,
+    compileTTF,
+    compileVariableCFF2,
+    compileVariableTTF,
+)
+from ufo2ft.constants import KEEP_GLYPH_NAMES
 
 
 def getpath(filename):
@@ -23,11 +23,6 @@ def getpath(filename):
 @pytest.fixture
 def testufo(FontClass):
     return FontClass(getpath("TestFont.ufo"))
-
-
-@pytest.fixture
-def instructions_ufo(FontClass):
-    return FontClass(getpath("Instructions.ufo"))
 
 
 def readLines(f):
@@ -44,12 +39,12 @@ def readLines(f):
 
 
 def expectTTX(font, expectedTTX, tables=None):
-    with open(getpath(expectedTTX), "r", encoding="utf-8") as f:
+    with open(getpath(expectedTTX), encoding="utf-8") as f:
         expected = readLines(f)
     font.recalcTimestamp = False
     font["head"].created, font["head"].modified = 3570196637, 3601822698
     font["head"].checkSumAdjustment = 0x12345678
-    f = UnicodeIO()
+    f = io.StringIO()
     font.saveXML(f, tables=tables)
 
     actual = readLines(f)
@@ -66,7 +61,7 @@ def useProductionNames(request):
     return request.param
 
 
-class IntegrationTest(object):
+class IntegrationTest:
 
     _layoutTables = ["GDEF", "GSUB", "GPOS", "BASE"]
 
@@ -124,6 +119,25 @@ class IntegrationTest(object):
         ttf = compileTTF(testufo, removeOverlaps=True, overlapsBackend="pathops")
         expectTTX(ttf, "TestFont-NoOverlaps-TTF-pathops.ttx")
 
+    def test_nestedComponents(self, FontClass):
+        ufo = FontClass(getpath("NestedComponents-Regular.ufo"))
+        ttf = compileTTF(ufo)
+        assert ttf["maxp"].maxComponentDepth != 1
+        ttf = compileTTF(ufo, flattenComponents=True)
+        assert ttf["maxp"].maxComponentDepth == 1
+
+    def test_nestedComponents_interpolatable(self, FontClass):
+        ufos = [
+            FontClass(getpath("NestedComponents-Regular.ufo")),
+            FontClass(getpath("NestedComponents-Bold.ufo")),
+        ]
+        ttfs = compileInterpolatableTTFs(ufos)
+        for ttf in ttfs:
+            assert ttf["maxp"].maxComponentDepth != 1
+        ttfs = compileInterpolatableTTFs(ufos, flattenComponents=True)
+        for ttf in ttfs:
+            assert ttf["maxp"].maxComponentDepth == 1
+
     def test_interpolatableTTFs_lazy(self, FontClass):
         # two same UFOs **must** be interpolatable
         ufos = [FontClass(getpath("TestFont.ufo")) for _ in range(2)]
@@ -153,8 +167,8 @@ class IntegrationTest(object):
         "subroutinizer, cff_version, expected_ttx",
         [
             (None, 1, "TestFont-CFF.ttx"),
-            ("compreffor", 1, "TestFont-CFF.ttx"),
-            ("cffsubr", 1, "TestFont-CFF-cffsubr.ttx"),
+            ("compreffor", 1, "TestFont-CFF-compreffor.ttx"),
+            ("cffsubr", 1, "TestFont-CFF.ttx"),
             (None, 2, "TestFont-CFF2-cffsubr.ttx"),
             # ("compreffor", 2, "TestFont-CFF2-compreffor.ttx"),
             ("cffsubr", 2, "TestFont-CFF2-cffsubr.ttx"),
@@ -203,7 +217,7 @@ class IntegrationTest(object):
     def test_debugFeatureFile(self, designspace):
         tmp = io.StringIO()
 
-        varfont = compileVariableTTF(designspace, debugFeatureFile=tmp)
+        _ = compileVariableTTF(designspace, debugFeatureFile=tmp)
 
         assert "### LayerFont-Regular ###" in tmp.getvalue()
         assert "### LayerFont-Bold ###" in tmp.getvalue()
@@ -216,35 +230,26 @@ class IntegrationTest(object):
         ],
     )
     def test_drop_glyph_names(self, testufo, output_format, options, expected_ttx):
-        from ufo2ft.constants import KEEP_GLYPH_NAMES
-
         testufo.lib[KEEP_GLYPH_NAMES] = False
         compile_func = globals()[f"compile{output_format}"]
         ttf = compile_func(testufo, **options)
         expectTTX(ttf, expected_ttx)
 
-    def test_Instructions(self, instructions_ufo):
-        ttf = compileTTF(
-            instructions_ufo, reverseDirection=False, removeOverlaps=False
-        )
-        assert "cvt " in ttf
-        assert "gasp" in ttf
-        assert "fpgm" in ttf
-        assert "prep" in ttf
-        expectTTX(ttf, "Instructions.ttx")
-
-    def test_Instructions_drop_glyph_names(self, instructions_ufo):
-        from ufo2ft.constants import KEEP_GLYPH_NAMES
-
-        instructions_ufo.lib[KEEP_GLYPH_NAMES] = False
-        ttf = compileTTF(
-            instructions_ufo, reverseDirection=False, removeOverlaps=False
-        )
-        assert "cvt " in ttf
-        assert "gasp" in ttf
-        assert "fpgm" in ttf
-        assert "prep" in ttf
-        expectTTX(ttf, "Instructions-useProductionNames.ttx")
+    @pytest.mark.parametrize(
+        "output_format, options, expected_ttx",
+        [
+            ("VariableTTF", {}, "TestVariableFont-TTF-post3.ttx"),
+            ("VariableCFF2", {}, "TestVariableFont-CFF2-post3.ttx"),
+        ],
+    )
+    def test_drop_glyph_names_variable(
+        self, designspace, output_format, options, expected_ttx
+    ):
+        # set keepGlyphNames in the default UFO.lib where postProcessor finds it
+        designspace.findDefault().font.lib[KEEP_GLYPH_NAMES] = False
+        compile_func = globals()[f"compile{output_format}"]
+        ttf = compile_func(designspace, **options)
+        expectTTX(ttf, expected_ttx)
 
 
 if __name__ == "__main__":

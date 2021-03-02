@@ -1,16 +1,16 @@
-from __future__ import print_function, division, absolute_import, unicode_literals
+import itertools
 import re
 from collections import OrderedDict, defaultdict
 from functools import partial
-import itertools
-from fontTools.misc.py23 import tostr, tounicode
+
 from fontTools.misc.fixedTools import otRound
+
 from ufo2ft.featureWriters import BaseFeatureWriter, ast
-from ufo2ft.util import unicodeInScripts, classifyGlyphs
 from ufo2ft.fontInfoData import getAttrWithFallback
+from ufo2ft.util import classifyGlyphs, unicodeInScripts
 
 
-class AbstractMarkPos(object):
+class AbstractMarkPos:
     """Object containing all the mark attachments for glyph 'name'.
     The 'marks' is a list of NamedAnchor objects.
     Provides methods to filter marks given some callable, and convert
@@ -147,7 +147,7 @@ def parseAnchorName(
     return isMark, key, number
 
 
-class NamedAnchor(object):
+class NamedAnchor:
     """A position with a name, and an associated markClass."""
 
     __slots__ = ("name", "x", "y", "isMark", "key", "number", "markClass")
@@ -159,7 +159,7 @@ class NamedAnchor(object):
     ligaNumRE = LIGA_NUM_RE
 
     def __init__(self, name, x, y, markClass=None):
-        self.name = tounicode(name)
+        self.name = name
         self.x = x
         self.y = y
         isMark, key, number = parseAnchorName(
@@ -184,8 +184,8 @@ class NamedAnchor(object):
         return self.markPrefix + self.key
 
     def __repr__(self):
-        items = ("%s=%r" % (tostr(k), getattr(self, k)) for k in ("name", "x", "y"))
-        return tostr("%s(%s)") % (type(self).__name__, ", ".join(items))
+        items = ("{}={!r}".format(k, getattr(self, k)) for k in ("name", "x", "y"))
+        return "%s(%s)" % (type(self).__name__, ", ".join(items))
 
 
 def colorGraph(adjacency):
@@ -204,9 +204,9 @@ def colorGraph(adjacency):
     color = dict()
     # Sorted for reproducibility, probably not the optimal vertex order
     for node in sorted(adjacency):
-        usedNeighbourColors = set(
+        usedNeighbourColors = {
             color[neighbour] for neighbour in adjacency[node] if neighbour in color
-        )
+        }
         color[node] = firstAvailable(usedNeighbourColors)
     groups = defaultdict(list)
     for node, color in color.items():
@@ -295,9 +295,7 @@ class MarkFeatureWriter(BaseFeatureWriter):
     anchorSortKey = {"_bottom": -2, "_top": -1}
 
     def setContext(self, font, feaFile, compiler=None):
-        ctx = super(MarkFeatureWriter, self).setContext(
-            font, feaFile, compiler=compiler
-        )
+        ctx = super().setContext(font, feaFile, compiler=compiler)
         ctx.gdefClasses = ast.getGDEFGlyphClasses(feaFile)
         ctx.anchorLists = self._getAnchorLists()
         ctx.anchorPairs = self._getAnchorPairs()
@@ -306,7 +304,7 @@ class MarkFeatureWriter(BaseFeatureWriter):
         if not self.context.anchorPairs:
             self.log.debug("No mark-attaching anchors found; skipped")
             return False
-        return super(MarkFeatureWriter, self).shouldContinue()
+        return super().shouldContinue()
 
     def _getAnchorLists(self):
         gdefClasses = self.context.gdefClasses
@@ -689,7 +687,7 @@ class MarkFeatureWriter(BaseFeatureWriter):
         if not attachments:
             return
         prefix = (featureTag + "_") if featureTag is not None else ""
-        lookupName = "%smark2mark_%s" % (prefix, anchorName)
+        lookupName = f"{prefix}mark2mark_{anchorName}"
         filteringClass = self._makeMarkFilteringSetClass(
             lookupName,
             attachments,
@@ -877,9 +875,11 @@ class MarkFeatureWriter(BaseFeatureWriter):
             return False
 
         feaFile = self.context.feaFile
-        feaFile.statements.extend(newClassDefs)
-        # add empty line to separate classes from following statements
-        feaFile.statements.append(ast.Comment(""))
-        for _, feature in sorted(features.items()):
-            feaFile.statements.append(feature)
+
+        self._insert(
+            feaFile=feaFile,
+            markClassDefs=newClassDefs,
+            features=[features[tag] for tag in sorted(features.keys())],
+        )
+
         return True

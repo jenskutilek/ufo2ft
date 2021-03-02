@@ -1,8 +1,5 @@
 """Helpers to build or extract data from feaLib AST objects."""
 
-from __future__ import print_function, division, absolute_import, unicode_literals
-from fontTools.feaLib import ast
-from fontTools import unicodedata
 
 import collections
 import re
@@ -10,6 +7,9 @@ import re
 # we re-export here all the feaLib AST classes so they can be used from
 # writer modules with a single `from ufo2ft.featureWriters import ast`
 import sys
+
+from fontTools import unicodedata
+from fontTools.feaLib import ast
 
 self = sys.modules[__name__]
 for name in getattr(ast, "__all__", dir(ast)):
@@ -47,6 +47,21 @@ def iterFeatureBlocks(feaFile, tag=None):
 
 def findFeatureTags(feaFile):
     return {f.name for f in iterFeatureBlocks(feaFile)}
+
+
+def findCommentPattern(feaFile, pattern):
+    """
+    Yield a tuple of statements, starting with the parent block, followed by
+    nested blocks if present, ending with the comment matching a given pattern.
+    There is not parent block if the matched comment is a the root level.
+    """
+    for statement in feaFile.statements:
+        if hasattr(statement, "statements"):
+            for res in findCommentPattern(statement, pattern):
+                yield (statement, *res)
+        elif isinstance(statement, ast.Comment):
+            if re.match(pattern, str(statement)):
+                yield (statement,)
 
 
 def iterClassDefinitions(feaFile, featureTag=None):
@@ -87,7 +102,7 @@ def makeLookupFlag(name=None, markAttachment=None, markFilteringSet=None):
 
 
 def makeGlyphClassDefinitions(groups, feaFile=None, stripPrefix=""):
-    """ Given a groups dictionary ({str: list[str]}), create feaLib
+    """Given a groups dictionary ({str: list[str]}), create feaLib
     GlyphClassDefinition objects for each group.
     Return a dict keyed by the original group name.
 
