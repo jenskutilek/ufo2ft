@@ -1,23 +1,14 @@
 # -*- coding: utf-8 -*-
-from __future__ import (
-    print_function,
-    division,
-    absolute_import,
-    unicode_literals,
-)
-
 import array
+import logging
 
-from fontTools.pens.hashPointPen import HashPointPen
 from fontTools import ttLib
+from fontTools.pens.hashPointPen import HashPointPen
 from fontTools.ttLib.tables._g_l_y_f import (
     OVERLAP_COMPOUND,
     ROUND_XY_TO_GRID,
     USE_MY_METRICS,
 )
-
-import logging
-
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +133,14 @@ class InstructionCompiler(object):
                 # doesn't have an identifier, we should autoset all component
                 # flags.
                 for i, c in enumerate(glyf.components):
+                    if i >= len(glyph.components):
+                        logger.error(
+                            "Number of components differ between UFO and TTF "
+                            f"in glyph '{name}' ({len(glyph.components)} vs. "
+                            f"{len(glyf.components)}, not setting flags in "
+                            "additional components."
+                        )
+                        break
                     ufo_component = glyph.components[i]
                     if (
                         ufo_component.identifier is None
