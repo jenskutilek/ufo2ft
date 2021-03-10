@@ -12,7 +12,11 @@ from fontTools.ttLib.tables._g_l_y_f import (
 
 logger = logging.getLogger(__name__)
 
-ufoLibKey = "public.truetype.instructions"
+TRUETYPE_INSTRUCTIONS_KEY = "public.truetype.instructions"
+TRUETYPE_ROUND_KEY = "public.truetype.roundOffsetToGrid"
+TRUETYPE_METRICS_KEY = "public.truetype.useMyMetrics"
+TRUETYPE_OVERLAP_KEY = "public.truetype.overlap"
+OBJECT_LIBS_KEY = "public.objectLibs"
 
 
 class InstructionCompiler(object):
@@ -22,7 +26,7 @@ class InstructionCompiler(object):
 
     def _compile_program(self, key, table_tag):
         assert table_tag in ("prep", "fpgm")
-        ttdata = self.ufo.lib.get(ufoLibKey, None)
+        ttdata = self.ufo.lib.get(TRUETYPE_INSTRUCTIONS_KEY, None)
         if ttdata:
             formatVersion = ttdata.get("formatVersion", None)
             if int(formatVersion) != 1:
@@ -39,12 +43,11 @@ class InstructionCompiler(object):
                 table.program.fromAssembly(asm)
                 # Roundtrip once, or if the font is dumped to XML before having
                 # been saved, the assembly code if will look awful.
-                table.program._assemble()
-                table.program._disassemble(preserve=True)
+                table.program.fromBytecode(table.program.getBytecode())
 
     def compile_cvt(self):
         cvts = []
-        ttdata = self.ufo.lib.get(ufoLibKey, None)
+        ttdata = self.ufo.lib.get(TRUETYPE_INSTRUCTIONS_KEY, None)
         if ttdata:
             formatVersion = ttdata.get("formatVersion", None)
             if int(formatVersion) != 1:
@@ -76,7 +79,7 @@ class InstructionCompiler(object):
     def compile_glyf(self):
         for name in sorted(self.ufo.keys()):
             glyph = self.ufo[name]
-            ttdata = glyph.lib.get(ufoLibKey, None)
+            ttdata = glyph.lib.get(TRUETYPE_INSTRUCTIONS_KEY, None)
             if name not in self.font["glyf"]:
                 if ttdata is not None:
                     logger.warning(
@@ -117,8 +120,7 @@ class InstructionCompiler(object):
                     glyf.program.fromAssembly(asm)
                     # Roundtrip once, or if the font is dumped to XML before
                     # having been saved, the assembly code if will look awful.
-                    glyf.program._assemble()
-                    glyf.program._disassemble(preserve=True)
+                    glyf.program.fromBytecode(glyf.program.getBytecode())
 
             # Handle composites
             if glyf.isComposite():
@@ -128,10 +130,10 @@ class InstructionCompiler(object):
 
                 # Set component flags
 
-                # We need to decide when to set the flags automatically.
+                # We need to decide when to set the flags.
                 # Let's assume if any lib key is not there, or the component
-                # doesn't have an identifier, we should autoset all component
-                # flags.
+                # doesn't have an identifier, we should leave the flags alone.
+                use_my_metrics_comp = None
                 for i, c in enumerate(glyf.components):
                     if i >= len(glyph.components):
                         logger.error(
@@ -141,58 +143,52 @@ class InstructionCompiler(object):
                             "additional components."
                         )
                         break
-                    ufo_component = glyph.components[i]
+                    ufo_component_id = glyph.components[i].identifier
                     if (
-                        ufo_component.identifier is None
-                        or "public.objectLibs" not in glyph.lib
-                        or "public.objectIdentifiers"
-                        not in glyph.lib["public.objectLibs"]
-                        or ufo_component.identifier
-                        not in glyph.lib["public.objectLibs"][
-                            "public.objectIdentifiers"
-                        ]
-                        or "public.truetype.instructions"
-                        not in glyph.lib["public.objectLibs"][
-                            "public.objectIdentifiers"
-                        ][ufo_component.identifier]
+                        ufo_component_id is not None
+                        and OBJECT_LIBS_KEY in glyph.lib
+                        and ufo_component_id in glyph.lib[OBJECT_LIBS_KEY]
+                        and (
+                            TRUETYPE_ROUND_KEY
+                            in glyph.lib[OBJECT_LIBS_KEY][ufo_component_id]
+                            or TRUETYPE_METRICS_KEY
+                            in glyph.lib[OBJECT_LIBS_KEY][ufo_component_id]
+                        )
                     ):
-                        # Auto set
+                        component_lib = glyph.lib[OBJECT_LIBS_KEY][ufo_component_id]
 
-                        # We don't try to set the "OVERLAP_COMPOUND" flag
+                        c.flags &= ~ROUND_XY_TO_GRID
+                        if component_lib.get(TRUETYPE_ROUND_KEY, False):
+                            c.flags |= ROUND_XY_TO_GRID
 
-                        # Set "ROUND_XY_TO_GRID" if the component has an offset
-                        # c.flags &= ~ROUND_XY_TO_GRID
-                        # if c.x != 0 or c.y != 0:
-                        #     c.flags |= ROUND_XY_TO_GRID
+                        c.flags &= ~USE_MY_METRICS
+                        if component_lib.get(TRUETYPE_METRICS_KEY, False):
+                            if use_my_metrics_comp:
+                                logger.warning(
+                                    "Ignoring USE_MY_METRICS flag on component "
+                                    f"'{ufo_component_id}' because it has been set on "
+                                    f"component '{use_my_metrics_comp}' already."
+                                )
+                            else:
+                                c.flags |= USE_MY_METRICS
+                                use_my_metrics_comp = ufo_component_id
 
-                        # Nope, don't change the flag:
-                        # https://github.com/googlefonts/ufo2ft/pull/425
-                        pass
+                    # We might automatically set the flags if no data is present,
+                    # but:
+                    # - https://github.com/googlefonts/ufo2ft/pull/425 recommends
+                    #   against setting the ROUND_XY_TO_GRID flag
+                    # - USE_MY_METRICS has been set already by
+                    #   outlineCompiler.OutlineTTFCompiler.autoUseMyMetrics
 
-                        # "USE_MY_METRICS" has been set already by
-                        # outlineCompiler.OutlineTTFCompiler.autoUseMyMetrics
-
-                    else:
-                        # Use values from lib
-
-                        flags = glyph.lib["public.objectLibs"][
-                            "public.objectIdentifiers"
-                        ][glyph.components[i].identifier][
-                            "public.truetype.instructions"
-                        ]
-
-                        for key, flag in (
-                            ("overlap", OVERLAP_COMPOUND),
-                            ("round", ROUND_XY_TO_GRID),
-                            ("useMyMetrics", USE_MY_METRICS),
-                        ):
-                            c.flags &= ~flag
-                            if flags.get(key, False):
-                                c.flags |= flag
+                    if i == 0 and TRUETYPE_OVERLAP_KEY in glyph.lib:
+                        # Set OVERLAP_COMPOUND on the first component only
+                        c.flags &= ~OVERLAP_COMPOUND
+                        if glyph.lib.get(TRUETYPE_OVERLAP_KEY, False):
+                            c.flags |= OVERLAP_COMPOUND
 
     def compile_maxp(self):
         maxp = self.font["maxp"]
-        ttdata = self.ufo.lib.get(ufoLibKey, None)
+        ttdata = self.ufo.lib.get(TRUETYPE_INSTRUCTIONS_KEY, None)
         if ttdata:
             for name in (
                 "maxStorage",
