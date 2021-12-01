@@ -117,10 +117,8 @@ def compile_ttf(ufo, glyphSet, layerName, **kwargs):
     return ttf
 
 
-def compile_ttf_wrapper(arg):
-    args, kwargs = arg
-    ufo, glyphSet, layerName = args
-    return compile_ttf(ufo, glyphSet, layerName, **kwargs)
+def compile_ttf_wrapper(arg, kwargs):
+    return compile_ttf(*arg, **kwargs)
 
 
 result_ttfs = []
@@ -177,7 +175,7 @@ def compile_ttfs(ufos, glyphSets, **kwargs):
             for args in zip(ufos, glyphSets, kwargs["layerNames"]):
                 # pool.apply_async(compile_ttf, (args, kwargs), callback=collect_result)
                 ttfs = pool.apply(compile_ttf_wrapper, (args, kwargs))
-    # print(result_ttfs)
+    print(ttfs)
     return ttfs
 
 
