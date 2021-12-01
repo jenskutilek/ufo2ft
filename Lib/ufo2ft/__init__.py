@@ -75,6 +75,47 @@ def call_postprocessor(otf, ufo, glyphSet, *, postProcessorClass, **kwargs):
     return otf
 
 
+def compile_ttfs(ufos, glyphSets, **kwargs):
+    # Compile ufos to ttfs. Split from compileInterpolatableTTFs.
+    ttfs = []
+    for ufo, glyphSet, layerName in zip(ufos, glyphSets, kwargs["layerNames"]):
+        fontName = _LazyFontName(ufo)
+        if layerName is not None:
+            logger.info("Building OpenType tables for %s-%s", fontName, layerName)
+        else:
+            logger.info("Building OpenType tables for %s", fontName)
+
+        ttf = call_outline_compiler(
+            ufo,
+            glyphSet,
+            **kwargs,
+            tables=SPARSE_TTF_MASTER_TABLES if layerName else None,
+        )
+
+        # Only the default layer is likely to have all glyphs used in feature
+        # code.
+        if layerName is None:
+            if kwargs["debugFeatureFile"]:
+                kwargs["debugFeatureFile"].write("\n### %s ###\n" % fontName)
+            compileFeatures(ufo, ttf, glyphSet=glyphSet, **kwargs)
+
+        ttf = call_postprocessor(ttf, ufo, glyphSet, **kwargs)
+
+        if layerName is not None:
+            # for sparse masters (i.e. containing only a subset of the glyphs), we
+            # need to include the post table in order to store glyph names, so that
+            # fontTools.varLib can interpolate glyphs with same name across masters.
+            # However we want to prevent the underlinePosition/underlineThickness
+            # fields in such sparse masters to be included when computing the deltas
+            # for the MVAR table. Thus, we set them to this unlikely, limit value
+            # (-36768) which is a signal varLib should ignore them when building MVAR.
+            ttf["post"].underlinePosition = -0x8000
+            ttf["post"].underlineThickness = -0x8000
+
+        ttfs.append(ttf)
+    return ttfs
+
+
 base_args = dict(
     postProcessorClass=PostProcessor,
     featureCompilerClass=None,
@@ -285,41 +326,8 @@ def compileInterpolatableTTFs(ufos, **kwargs):
 
     glyphSets = call_preprocessor(ufos, **kwargs)
 
-    for ufo, glyphSet, layerName in zip(ufos, glyphSets, kwargs["layerNames"]):
-        fontName = _LazyFontName(ufo)
-        if layerName is not None:
-            logger.info("Building OpenType tables for %s-%s", fontName, layerName)
-        else:
-            logger.info("Building OpenType tables for %s", fontName)
-
-        ttf = call_outline_compiler(
-            ufo,
-            glyphSet,
-            **kwargs,
-            tables=SPARSE_TTF_MASTER_TABLES if layerName else None,
-        )
-
-        # Only the default layer is likely to have all glyphs used in feature
-        # code.
-        if layerName is None:
-            if kwargs["debugFeatureFile"]:
-                kwargs["debugFeatureFile"].write("\n### %s ###\n" % fontName)
-            compileFeatures(ufo, ttf, glyphSet=glyphSet, **kwargs)
-
-        ttf = call_postprocessor(ttf, ufo, glyphSet, **kwargs)
-
-        if layerName is not None:
-            # for sparse masters (i.e. containing only a subset of the glyphs), we
-            # need to include the post table in order to store glyph names, so that
-            # fontTools.varLib can interpolate glyphs with same name across masters.
-            # However we want to prevent the underlinePosition/underlineThickness
-            # fields in such sparse masters to be included when computing the deltas
-            # for the MVAR table. Thus, we set them to this unlikely, limit value
-            # (-36768) which is a signal varLib should ignore them when building MVAR.
-            ttf["post"].underlinePosition = -0x8000
-            ttf["post"].underlineThickness = -0x8000
-
-        yield ttf
+    # This is now split into a separate function.
+    return compile_ttfs(ufos, glyphSets, **kwargs)
 
 
 def compileInterpolatableTTFsFromDS(designSpaceDoc, **kwargs):
