@@ -1,5 +1,9 @@
 import logging
+import multiprocessing
+
 from enum import IntEnum
+# from functools import partial
+# from itertools import repeat
 
 from fontTools import varLib
 
@@ -92,12 +96,12 @@ def compile_ttf(ufo, glyphSet, layerName, **kwargs):
 
     # Only the default layer is likely to have all glyphs used in feature
     # code.
-    if layerName is None:
-        if kwargs["debugFeatureFile"]:
-            kwargs["debugFeatureFile"].write("\n### %s ###\n" % fontName)
-        compileFeatures(ufo, ttf, glyphSet=glyphSet, **kwargs)
+    # if layerName is None:
+    #     if kwargs["debugFeatureFile"]:
+    #         kwargs["debugFeatureFile"].write("\n### %s ###\n" % fontName)
+    #     compileFeatures(ufo, ttf, glyphSet=glyphSet, **kwargs)
 
-    ttf = call_postprocessor(ttf, ufo, glyphSet, **kwargs)
+    # ttf = call_postprocessor(ttf, ufo, glyphSet, **kwargs)
 
     if layerName is not None:
         # for sparse masters (i.e. containing only a subset of the glyphs), we
@@ -113,14 +117,66 @@ def compile_ttf(ufo, glyphSet, layerName, **kwargs):
     return ttf
 
 
+def compile_ttf_wrapper(arg):
+    args, kwargs = arg
+    return compile_ttf(*args, **kwargs)
+
+
+result_ttfs = []
+
+
+def collect_result(result):
+    logger.info("collect_result", result)
+    result_ttfs.append(result)
+
+
 def compile_ttfs(ufos, glyphSets, **kwargs):
     # Compile ufos to ttfs. Split from compileInterpolatableTTFs.
     ttfs = []
     del kwargs["layerName"]
-    for ufo, glyphSet, layerName in zip(ufos, glyphSets, kwargs["layerNames"]):
-        ttf = compile_ttf(ufo, glyphSet, layerName, **kwargs)
-
-        ttfs.append(ttf)
+    SLOW = False
+    if SLOW:
+        for ufo, glyphSet, layerName in zip(ufos, glyphSets, kwargs["layerNames"]):
+            ttf = compile_ttf(ufo, glyphSet, layerName, **kwargs)
+            ttfs.append(ttf)
+    else:
+        # MP
+        logger.info("Entering multiprocessing branch ...")
+        """
+        # https://stackoverflow.com/questions/34031681/passing-kwargs-with-multiprocessing-pool-map
+        arg = [
+            (args, kwargs)
+            for args in zip(
+                ufos, glyphSets, kwargs["layerNames"]
+            )
+        ]
+        with multiprocessing.Pool() as pool:
+            results = pool.starmap(
+                func=compile_ttf_wrapper,
+                iterable=arg
+            )
+        for _ in range(len(ufos)):
+            ttfs.append(results.next())
+        """
+        with multiprocessing.Pool() as pool:
+            # future_parameters = [
+            #     (
+            #         pool.apply_async(
+            #             compile_ttf,
+            #             kwds=parameters
+            #         ),
+            #         parameters
+            #     )
+            #     for parameters in zip(ufos, glyphSets, kwargs["layerNames"])
+            # ]
+            # for future, parameters in future_parameters:
+            #     result = future.get()
+            #     print(parameters, "=>", result)
+            # https://stackoverflow.com/questions/8533318/multiprocessing-pool-when-to-use-apply-apply-async-or-map
+            for args in zip(ufos, glyphSets, kwargs["layerNames"]):
+                # pool.apply_async(compile_ttf, (args, kwargs), callback=collect_result)
+                ttfs = pool.apply(compile_ttf, (args, kwargs))
+    # print(result_ttfs)
     return ttfs
 
 
@@ -330,6 +386,16 @@ def compileInterpolatableTTFs(ufos, **kwargs):
         kwargs["layerNames"] = [None] * len(ufos)
     assert len(ufos) == len(kwargs["layerNames"])
 
+    # ufos_kwargs = zip(ufos, kwargs)
+    # p = multiprocessing.Pool(None)
+    # results = p.imap(
+    #     func=call_preprocessor,
+    #     iterable=ufos_kwargs
+    # )
+    # p.close()
+    # glyphSets = []
+    # for i in range(len(ufos)):
+    #     glyphSets.append(results.next())
     glyphSets = call_preprocessor(ufos, **kwargs)
 
     # This is now split into a separate function.
