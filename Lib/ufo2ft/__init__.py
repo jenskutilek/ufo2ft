@@ -18,6 +18,7 @@ from ufo2ft.preProcessor import (
 )
 from ufo2ft.util import (
     _getDefaultNotdefGlyph,
+    _LazyFontName,
     getDefaultMasterFont,
     init_kwargs,
     prune_unknown_kwargs,
@@ -316,8 +317,6 @@ def compileInterpolatableTTFs(ufos, **kwargs):
     exist, all glyphs are exported. UFO groups and kerning will be pruned of
     skipped glyphs.
     """
-    from ufo2ft.util import _LazyFontName
-
     kwargs = init_kwargs(kwargs, compileInterpolatableTTFs_args)
 
     if kwargs["layerNames"] is None:
