@@ -119,7 +119,8 @@ def compile_ttf(ufo, glyphSet, layerName, **kwargs):
 
 def compile_ttf_wrapper(arg):
     args, kwargs = arg
-    return compile_ttf(*args, **kwargs)
+    ufo, glyphSet, layerName = args
+    return compile_ttf(ufo, glyphSet, layerName, **kwargs)
 
 
 result_ttfs = []
@@ -175,7 +176,7 @@ def compile_ttfs(ufos, glyphSets, **kwargs):
             # https://stackoverflow.com/questions/8533318/multiprocessing-pool-when-to-use-apply-apply-async-or-map
             for args in zip(ufos, glyphSets, kwargs["layerNames"]):
                 # pool.apply_async(compile_ttf, (args, kwargs), callback=collect_result)
-                ttfs = pool.apply(compile_ttf, (args, kwargs))
+                ttfs = pool.apply(compile_ttf_wrapper, (args, kwargs))
     # print(result_ttfs)
     return ttfs
 
