@@ -117,8 +117,9 @@ def compile_ttf(ufo, glyphSet, layerName, **kwargs):
     return ttf
 
 
-def compile_ttf_wrapper(arg, kwargs):
-    return compile_ttf(*arg, **kwargs)
+def compile_ttf_wrapper(args, kwargs):
+    print("compile_ttf_wrapper:", args, kwargs)
+    return compile_ttf(*args, **kwargs)
 
 
 result_ttfs = []
@@ -135,8 +136,8 @@ def compile_ttfs(ufos, glyphSets, **kwargs):
     del kwargs["layerName"]
     SLOW = False
     if SLOW:
-        for ufo, glyphSet, layerName in zip(ufos, glyphSets, kwargs["layerNames"]):
-            ttf = compile_ttf(ufo, glyphSet, layerName, **kwargs)
+        for args in zip(ufos, glyphSets, kwargs["layerNames"]):
+            ttf = compile_ttf_wrapper(args, kwargs)
             ttfs.append(ttf)
     else:
         # MP
