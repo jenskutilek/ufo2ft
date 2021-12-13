@@ -134,7 +134,7 @@ def compile_ttfs(ufos, glyphSets, **kwargs):
     # Compile ufos to ttfs. Split from compileInterpolatableTTFs.
     ttfs = []
     del kwargs["layerName"]
-    SLOW = False
+    SLOW = True
     if SLOW:
         for args in zip(ufos, glyphSets, kwargs["layerNames"]):
             ttf = compile_ttf_wrapper(args, kwargs)
