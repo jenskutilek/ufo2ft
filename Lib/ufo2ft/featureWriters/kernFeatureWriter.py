@@ -1,10 +1,9 @@
 from types import SimpleNamespace
 
 from fontTools import unicodedata
-from fontTools.misc.fixedTools import otRound
 
 from ufo2ft.featureWriters import BaseFeatureWriter, ast
-from ufo2ft.util import classifyGlyphs
+from ufo2ft.util import classifyGlyphs, quantize, unicodeScriptDirection
 
 SIDE1_PREFIX = "public.kern1."
 SIDE2_PREFIX = "public.kern2."
@@ -100,19 +99,6 @@ DIST_ENABLED_SCRIPTS = {
     "Nand",  # Nandinagari
 }
 
-
-# we consider the 'Common' and 'Inherited' scripts as neutral for
-# determining a kerning pair's horizontal direction
-DFLT_SCRIPTS = {"Zyyy", "Zinh"}
-
-
-def unicodeScriptDirection(uv):
-    sc = unicodedata.script(chr(uv))
-    if sc in DFLT_SCRIPTS:
-        return None
-    return unicodedata.script_horizontal_direction(sc)
-
-
 RTL_BIDI_TYPES = {"R", "AL"}
 LTR_BIDI_TYPES = {"L", "AN", "EN"}
 
@@ -195,11 +181,14 @@ class KernFeatureWriter(BaseFeatureWriter):
     2) "skip" (default) will not write anything if the features are already present;
     1) "append" will add additional lookups to an existing feature, if present,
        or it will add a new one at the end of all features.
+
+    If the `quantization` argument is given in the filter options, the resulting
+    anchors are rounded to the nearest multiple of the quantization value.
     """
 
     tableTag = "GPOS"
     features = frozenset(["kern", "dist"])
-    options = dict(ignoreMarks=True)
+    options = dict(ignoreMarks=True, quantization=1)
 
     def setContext(self, font, feaFile, compiler=None):
         ctx = super().setContext(font, feaFile, compiler=compiler)
@@ -359,9 +348,9 @@ class KernFeatureWriter(BaseFeatureWriter):
         return scriptGroups
 
     @staticmethod
-    def _makePairPosRule(pair, rtl=False):
+    def _makePairPosRule(pair, rtl=False, quantization=1):
         enumerated = pair.firstIsClass ^ pair.secondIsClass
-        value = otRound(pair.value)
+        value = quantize(pair.value, quantization)
         if rtl and "L" in pair.bidiTypes:
             # numbers are always shaped LTR even in RTL scripts
             rtl = False
@@ -388,7 +377,12 @@ class KernFeatureWriter(BaseFeatureWriter):
             if exclude is not None and exclude(pair):
                 self.log.debug("pair excluded from '%s' lookup: %r", name, pair)
                 continue
-            rules.append(self._makePairPosRule(pair, rtl=rtl))
+            rules.append(
+                self._makePairPosRule(
+                    pair, rtl=rtl, quantization=self.options.quantization
+                )
+            )
+
         if rules:
             lookup = ast.LookupBlock(name)
             if ignoreMarks and self.options.ignoreMarks:
@@ -440,7 +434,8 @@ class KernFeatureWriter(BaseFeatureWriter):
                 # If there are pairs with a mix of mark/base then the IgnoreMarks
                 # flag is unnecessary and should not be set
                 basePairs, markPairs = self._splitBaseAndMarkPairs(pairs, marks)
-                self._makeSplitDirectionKernLookups(lookups, basePairs)
+                if basePairs:
+                    self._makeSplitDirectionKernLookups(lookups, basePairs)
                 if markPairs:
                     self._makeSplitDirectionKernLookups(
                         lookups, markPairs, ignoreMarks=False, suffix="_marks"
@@ -453,7 +448,11 @@ class KernFeatureWriter(BaseFeatureWriter):
             pairs = self.context.kerning.pairs
             if self.options.ignoreMarks:
                 basePairs, markPairs = self._splitBaseAndMarkPairs(pairs, marks)
-                lookups["LTR"] = [self._makeKerningLookup("kern_ltr", basePairs)]
+                lookups["LTR"] = []
+                if basePairs:
+                    lookups["LTR"].append(
+                        self._makeKerningLookup("kern_ltr", basePairs)
+                    )
                 if markPairs:
                     lookups["LTR"].append(
                         self._makeKerningLookup(

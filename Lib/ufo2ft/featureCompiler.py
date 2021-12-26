@@ -12,6 +12,7 @@ from fontTools.feaLib.parser import Parser
 
 from ufo2ft.constants import MTI_FEATURES_PREFIX
 from ufo2ft.featureWriters import (
+    CursFeatureWriter,
     GdefFeatureWriter,
     KernFeatureWriter,
     MarkFeatureWriter,
@@ -108,12 +109,12 @@ class BaseFeatureCompiler:
         raise NotImplementedError
 
     def setupFile_features(self):
-        """ DEPRECATED. Use 'setupFeatures' instead. """
+        """DEPRECATED. Use 'setupFeatures' instead."""
         _deprecateMethod("setupFile_features", "setupFeatures")
         self.setupFeatures()
 
     def setupFile_featureTables(self):
-        """ DEPRECATED. Use 'setupFeatures' instead. """
+        """DEPRECATED. Use 'setupFeatures' instead."""
         _deprecateMethod("setupFile_featureTables", "buildTables")
         self.buildTables()
 
@@ -148,7 +149,12 @@ class FeatureCompiler(BaseFeatureCompiler):
     Feature File stored in the UFO, using fontTools.feaLib as compiler.
     """
 
-    defaultFeatureWriters = [KernFeatureWriter, MarkFeatureWriter, GdefFeatureWriter]
+    defaultFeatureWriters = [
+        KernFeatureWriter,
+        MarkFeatureWriter,
+        GdefFeatureWriter,
+        CursFeatureWriter,
+    ]
 
     def __init__(self, ufo, ttFont=None, glyphSet=None, featureWriters=None, **kwargs):
         """

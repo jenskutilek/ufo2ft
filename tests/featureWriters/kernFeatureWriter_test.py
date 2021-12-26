@@ -178,6 +178,37 @@ class KernFeatureWriterTest(FeatureWriterTest):
             """
         )
 
+    def test_mark_to_base_only(self, FontClass):
+        font = FontClass()
+        for name in ("A", "B", "C"):
+            font.newGlyph(name)
+        font.newGlyph("acutecomb").unicode = 0x0301
+        font.kerning.update({("A", "acutecomb"): -55.0})
+
+        font.features.text = dedent(
+            """\
+            @Bases = [A B C];
+            @Marks = [acutecomb];
+            table GDEF {
+                GlyphClassDef @Bases, [], @Marks, ;
+            } GDEF;
+            """
+        )
+
+        # default is ignoreMarks=True
+        feaFile = self.writeFeatures(font)
+        assert str(feaFile) == dedent(
+            """
+            lookup kern_ltr_marks {
+                pos A acutecomb -55;
+            } kern_ltr_marks;
+
+            feature kern {
+                lookup kern_ltr_marks;
+            } kern;
+            """
+        )
+
     def test_mode(self, FontClass):
         ufo = FontClass()
         for name in ("one", "four", "six", "seven"):
@@ -1132,6 +1163,29 @@ class KernFeatureWriterTest(FeatureWriterTest):
             feature kern {
                 lookup kern_dflt;
                 lookup kern_rtl;
+            } kern;
+            """
+        )
+
+    def test_quantize(self, FontClass):
+        font = FontClass()
+        for name in ("one", "four", "six"):
+            font.newGlyph(name)
+        font.kerning.update({("four", "six"): -57.0, ("one", "six"): -24.0})
+        writer = KernFeatureWriter(quantization=5)
+        feaFile = ast.FeatureFile()
+        assert writer.write(font, feaFile)
+
+        assert str(feaFile) == dedent(
+            """\
+            lookup kern_ltr {
+                lookupflag IgnoreMarks;
+                pos four six -55;
+                pos one six -25;
+            } kern_ltr;
+
+            feature kern {
+                lookup kern_ltr;
             } kern;
             """
         )
