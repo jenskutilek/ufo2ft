@@ -40,6 +40,7 @@ from ufo2ft.fontInfoData import (
     intListToNum,
     normalizeStringForPostscript,
 )
+from ufo2ft.instructionCompiler import InstructionCompiler
 from ufo2ft.util import (
     _copyGlyph,
     calcCodePageRanges,
@@ -94,7 +95,12 @@ class BaseOutlineCompiler:
     )
 
     def __init__(
-        self, font, glyphSet=None, glyphOrder=None, tables=None, notdefGlyph=None
+        self,
+        font,
+        glyphSet=None,
+        glyphOrder=None,
+        tables=None,
+        notdefGlyph=None,
     ):
         self.ufo = font
         # use the previously filtered glyphSet, if any
@@ -1380,7 +1386,7 @@ class OutlineOTFCompiler(BaseOutlineCompiler):
         topDict.FontBBox = self.fontBoundingBox
 
 
-class OutlineTTFCompiler(BaseOutlineCompiler):
+class OutlineTTFCompiler(BaseOutlineCompiler, InstructionCompiler):
     """Compile a .ttf font with TrueType outlines."""
 
     sfntVersion = "\000\001\000\000"
@@ -1399,7 +1405,7 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
                 logger.error("%r has invalid curve format; skipped", name)
                 ttGlyph = Glyph()
             else:
-                ttGlyph = pen.glyph()
+                ttGlyph = pen.glyph(componentFlags=0x0)
             ttGlyphs[name] = ttGlyph
         return ttGlyphs
 
@@ -1456,6 +1462,10 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
         self.setupTable_glyf()
         if self.ufo.info.openTypeGaspRangeRecords:
             self.setupTable_gasp()
+        self.setupTable_cvt()
+        self.setupTable_fpgm()
+        self.setupTable_prep()
+        self.update_maxp()
 
     def setupTable_glyf(self):
         """Make the glyf table."""
@@ -1473,6 +1483,7 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
             ttGlyph = ttGlyphs[name]
             if ttGlyph.isComposite() and hmtx is not None and self.autoUseMyMetrics:
                 self.autoUseMyMetrics(ttGlyph, name, hmtx)
+            self.compileGlyphInstructions(ttGlyph, name)
             glyf[name] = ttGlyph
 
     @staticmethod
