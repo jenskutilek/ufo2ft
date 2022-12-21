@@ -43,6 +43,12 @@ def quadufo(FontClass):
 
 
 @pytest.fixture
+def nestedcomponentsufo(FontClass):
+    font = FontClass(getpath("NestedComponents-Regular.ufo"))
+    return font
+
+
+@pytest.fixture
 def use_my_metrics_ufo(FontClass):
     return FontClass(getpath("UseMyMetrics.ufo"))
 
@@ -94,6 +100,14 @@ class OutlineTTFCompilerTest:
         assert compiler.glyphBoundingBoxes["space"] is None
         # float coordinates are rounded, so is the bbox
         assert compiler.glyphBoundingBoxes["d"] == (90, 77, 211, 197)
+
+    def test_getMaxComponentDepths(self, nestedcomponentsufo):
+        compiler = OutlineTTFCompiler(nestedcomponentsufo)
+        assert "a" not in compiler.getMaxComponentDepths()
+        assert "b" not in compiler.getMaxComponentDepths()
+        assert compiler.getMaxComponentDepths()["c"] == 1
+        assert compiler.getMaxComponentDepths()["d"] == 1
+        assert compiler.getMaxComponentDepths()["e"] == 2
 
     def test_autoUseMyMetrics(self, use_my_metrics_ufo):
         compiler = OutlineTTFCompiler(use_my_metrics_ufo)
@@ -1130,6 +1144,33 @@ def test_compile_empty_ufo(FontClass):
     assert font["OS/2"].sCapHeight == 700
     assert font["OS/2"].sxHeight == 500
     assert font["OS/2"].sTypoDescender == -200
+
+
+def test_pass_on_conversion_error(FontClass):
+    ufo = FontClass()
+    ufo.info.unitsPerEm = 2000
+
+    # Draw quarter circle
+    glyph = ufo.newGlyph("test")
+    pen = glyph.getPointPen()
+    pen.beginPath()
+    pen.addPoint((0, 43), segmentType="line")
+    pen.addPoint((25, 43))
+    pen.addPoint((43, 25))
+    pen.addPoint((43, 0), segmentType="curve")
+    pen.addPoint((0, 0), segmentType="line")
+    pen.endPath()
+
+    font1 = compileTTF(ufo)  # Default error: 0.001
+    font2 = compileTTF(ufo, cubicConversionError=0.0005)
+
+    # One off-curve:
+    font1_coords = list(font1["glyf"]["test"].coordinates)
+    assert font1_coords == [(0, 43), (0, 0), (43, 0), (43, 43)]
+
+    # Two off-curves:
+    font2_coords = list(font2["glyf"]["test"].coordinates)
+    assert font2_coords == [(0, 43), (0, 0), (43, 0), (43, 19), (19, 43)]
 
 
 if __name__ == "__main__":

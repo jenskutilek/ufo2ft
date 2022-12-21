@@ -3,9 +3,14 @@ from types import SimpleNamespace
 
 from fontTools.misc.loggingTools import Timer
 
-from ufo2ft.util import _GlyphSet, _LazyFontName
+from ufo2ft.util import _GlyphSet, _LazyFontName, getMaxComponentDepth
 
-logger = logging.getLogger(__name__)
+# reuse the "ufo2ft.filters" logger
+logger = logging.getLogger("ufo2ft.filters")
+
+# library-level logger specialized for timing info which apps like fontmake
+# can selectively configure
+timing_logger = logging.getLogger("ufo2ft.timer")
 
 
 class BaseFilter:
@@ -186,9 +191,16 @@ class BaseFilter:
         include = self.include
         modified = context.modified
 
+        # process composite glyphs in decreasing component depth order (i.e. composites
+        # with more deeply nested components before shallower ones) to avoid
+        # order-dependent interferences while filtering glyphs with nested components
+        # https://github.com/googlefonts/ufo2ft/issues/621
+        orderedGlyphs = sorted(
+            glyphSet.keys(), key=lambda g: -getMaxComponentDepth(glyphSet[g], glyphSet)
+        )
+
         with Timer() as t:
-            # we sort the glyph names to make loop deterministic
-            for glyphName in sorted(glyphSet.keys()):
+            for glyphName in orderedGlyphs:
                 if glyphName in modified:
                     continue
                 glyph = glyphSet[glyphName]
@@ -197,7 +209,7 @@ class BaseFilter:
 
         num = len(modified)
         if num > 0:
-            logger.debug(
+            timing_logger.debug(
                 "Took %.3fs to run %s on %d glyph%s",
                 t,
                 self.name,

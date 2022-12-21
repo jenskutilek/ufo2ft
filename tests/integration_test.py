@@ -2,6 +2,7 @@ import difflib
 import io
 import os
 import sys
+from pathlib import Path
 
 import pytest
 from fontTools.pens.boundsPen import BoundsPen
@@ -11,7 +12,9 @@ from ufo2ft import (
     compileOTF,
     compileTTF,
     compileVariableCFF2,
+    compileVariableCFF2s,
     compileVariableTTF,
+    compileVariableTTFs,
 )
 from ufo2ft.constants import KEEP_GLYPH_NAMES
 from ufo2ft.filters import TransformationsFilter
@@ -95,6 +98,17 @@ class IntegrationTest:
         """
         ufo = FontClass(getpath("Bug108.ufo"))
         ttf = compileTTF(ufo)
+        expectTTX(ttf, "Bug108.ttx", tables=self._layoutTables)
+
+    def test_included_features_with_custom_include_dir(self, FontClass, tmp_path):
+        ufo = FontClass(getpath("Bug108.ufo"))
+        features_dir = tmp_path / "features"
+        features_dir.mkdir()
+        (features_dir / "foobarbaz.fea").write_text(
+            Path(getpath("Bug108_included.fea")).read_text()
+        )
+        ufo.features.text = "include(features/foobarbaz.fea);"
+        ttf = compileTTF(ufo, feaIncludeDir=tmp_path)
         expectTTX(ttf, "Bug108.ttx", tables=self._layoutTables)
 
     def test_mti_features(self, FontClass):
@@ -327,6 +341,80 @@ class IntegrationTest:
             assert pen1.bounds[1] + 10 == pen2.bounds[1]
             assert pen1.bounds[2] == pen2.bounds[2]
             assert pen1.bounds[3] + 10 == pen2.bounds[3]
+
+    def test_compileVariableTTFs(self, designspace_v5):
+        fonts = compileVariableTTFs(designspace_v5)
+
+        # NOTE: Test dumps were generated like this:
+        # for k, font in fonts.items():
+        #     font.recalcTimestamp = False
+        #     font["head"].created, font["head"].modified = 3570196637, 3601822698
+        #     font["head"].checkSumAdjustment = 0x12345678
+        #     font.saveXML(f"tests/data/DSv5/{k}-TTF.ttx")
+
+        assert set(fonts.keys()) == {
+            "MutatorSansVariable_Weight_Width",
+            "MutatorSansVariable_Weight",
+            "MutatorSansVariable_Width",
+            "MutatorSerifVariable_Width",
+        }
+        # The STAT table is set to [SRIF=0, wght=[300, 700], wdth=[50, 200]] + S1 + S2
+        expectTTX(
+            fonts["MutatorSansVariable_Weight_Width"],
+            "DSv5/MutatorSansVariable_Weight_Width-TTF.ttx",
+        )
+        # The STAT table is set to [SRIF=0, wght=[300, 700], wdth=50]
+        expectTTX(
+            fonts["MutatorSansVariable_Weight"],
+            "DSv5/MutatorSansVariable_Weight-TTF.ttx",
+        )
+        # The STAT table is set to [SRIF=0, wght=300, wdth=[50, 200]]
+        expectTTX(
+            fonts["MutatorSansVariable_Width"],
+            "DSv5/MutatorSansVariable_Width-TTF.ttx",
+        )
+        # The STAT table is set to [SRIF=1, wght=300, wdth=[50, 200]]
+        expectTTX(
+            fonts["MutatorSerifVariable_Width"],
+            "DSv5/MutatorSerifVariable_Width-TTF.ttx",
+        )
+
+    def test_compileVariableCFF2s(self, designspace_v5):
+        fonts = compileVariableCFF2s(designspace_v5)
+
+        # NOTE: Test dumps were generated like this:
+        # for k, font in fonts.items():
+        #     font.recalcTimestamp = False
+        #     font["head"].created, font["head"].modified = 3570196637, 3601822698
+        #     font["head"].checkSumAdjustment = 0x12345678
+        #     font.saveXML(f"tests/data/DSv5/{k}-CFF2.ttx")
+
+        assert set(fonts.keys()) == {
+            "MutatorSansVariable_Weight_Width",
+            "MutatorSansVariable_Weight",
+            "MutatorSansVariable_Width",
+            "MutatorSerifVariable_Width",
+        }
+        # The STAT table is set to [SRIF=0, wght=[300, 700], wdth=[50, 200]] + S1 + S2
+        expectTTX(
+            fonts["MutatorSansVariable_Weight_Width"],
+            "DSv5/MutatorSansVariable_Weight_Width-CFF2.ttx",
+        )
+        # The STAT table is set to [SRIF=0, wght=[300, 700], wdth=50]
+        expectTTX(
+            fonts["MutatorSansVariable_Weight"],
+            "DSv5/MutatorSansVariable_Weight-CFF2.ttx",
+        )
+        # The STAT table is set to [SRIF=0, wght=300, wdth=[50, 200]]
+        expectTTX(
+            fonts["MutatorSansVariable_Width"],
+            "DSv5/MutatorSansVariable_Width-CFF2.ttx",
+        )
+        # The STAT table is set to [SRIF=1, wght=300, wdth=[50, 200]]
+        expectTTX(
+            fonts["MutatorSerifVariable_Width"],
+            "DSv5/MutatorSerifVariable_Width-CFF2.ttx",
+        )
 
 
 if __name__ == "__main__":

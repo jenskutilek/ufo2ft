@@ -21,6 +21,7 @@ from fontTools.pens.reverseContourPen import ReverseContourPen
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.pens.ttGlyphPen import TTGlyphPointPen
 from fontTools.ttLib import TTFont, newTable
+from fontTools.ttLib.standardGlyphOrder import standardGlyphOrder
 from fontTools.ttLib.tables._g_l_y_f import USE_MY_METRICS, Glyph
 from fontTools.ttLib.tables._h_e_a_d import mac_epoch_diff
 from fontTools.ttLib.tables.O_S_2f_2 import Panose
@@ -40,9 +41,11 @@ from ufo2ft.fontInfoData import (
     intListToNum,
     normalizeStringForPostscript,
 )
+from ufo2ft.instructionCompiler import InstructionCompiler
 from ufo2ft.util import (
     _copyGlyph,
     calcCodePageRanges,
+    getMaxComponentDepth,
     makeOfficialGlyphOrder,
     makeUnicodeToGlyphNameMapping,
 )
@@ -94,7 +97,13 @@ class BaseOutlineCompiler:
     )
 
     def __init__(
-        self, font, glyphSet=None, glyphOrder=None, tables=None, notdefGlyph=None
+        self,
+        font,
+        glyphSet=None,
+        glyphOrder=None,
+        tables=None,
+        notdefGlyph=None,
+        colrLayerReuse=True,
     ):
         self.ufo = font
         # use the previously filtered glyphSet, if any
@@ -110,10 +119,12 @@ class BaseOutlineCompiler:
         self.unicodeToGlyphNameMapping = self.makeUnicodeToGlyphNameMapping()
         if tables is not None:
             self.tables = tables
+        self.colrLayerReuse = colrLayerReuse
         # cached values defined later on
         self._glyphBoundingBoxes = None
         self._fontBoundingBox = None
         self._compiledGlyphs = None
+        self._maxComponentDepths = None
 
     def compile(self):
         """
@@ -780,7 +791,7 @@ class BaseOutlineCompiler:
         secondSideBearings = []  # right in hhea, bottom in vhea
         extents = []
         if mtxTable is not None:
-            for glyphName in self.allGlyphs:
+            for glyphName in self.glyphOrder:
                 advance, firstSideBearing = mtxTable[glyphName]
                 advances.append(advance)
                 bounds = self.glyphBoundingBoxes[glyphName]
@@ -829,10 +840,18 @@ class BaseOutlineCompiler:
         for i in reserved:
             setattr(table, "reserved%i" % i, 0)
         table.metricDataFormat = 0
-        # glyph count
-        setattr(
-            table, "numberOf%sMetrics" % ("H" if isHhea else "V"), len(self.allGlyphs)
-        )
+        # precompute the number of long{Hor,Ver}Metric records in 'hmtx' table
+        # so we don't need to compile the latter to get this updated
+        numLongMetrics = len(advances)
+        if numLongMetrics > 1:
+            lastAdvance = advances[-1]
+            while advances[numLongMetrics - 2] == lastAdvance:
+                numLongMetrics -= 1
+                if numLongMetrics <= 1:
+                    # all advances are equal
+                    numLongMetrics = 1
+                    break
+        setattr(table, "numberOf%sMetrics" % ("H" if isHhea else "V"), numLongMetrics)
 
     def setupTable_hhea(self):
         """
@@ -967,6 +986,7 @@ class BaseOutlineCompiler:
                 layerInfo,
                 glyphMap=glyphMap,
                 clipBoxes=clipBoxes,
+                allowLayerReuse=self.colrLayerReuse,
             )
 
     def setupTable_CPAL(self):
@@ -1380,7 +1400,7 @@ class OutlineOTFCompiler(BaseOutlineCompiler):
         topDict.FontBBox = self.fontBoundingBox
 
 
-class OutlineTTFCompiler(BaseOutlineCompiler):
+class OutlineTTFCompiler(BaseOutlineCompiler, InstructionCompiler):
     """Compile a .ttf font with TrueType outlines."""
 
     sfntVersion = "\000\001\000\000"
@@ -1421,6 +1441,23 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
             glyphBoxes[glyphName] = bounds
         return glyphBoxes
 
+    def getMaxComponentDepths(self):
+        """Collect glyphs max components depths.
+
+        Return a dictionary of non zero max components depth keyed by glyph names.
+        The max component depth of composite glyphs is 1 or more.
+        Simple glyphs are not keyed.
+        """
+        if self._maxComponentDepths:
+            return self._maxComponentDepths
+        maxComponentDepths = dict()
+        for name, glyph in self.allGlyphs.items():
+            depth = getMaxComponentDepth(glyph, self.allGlyphs)
+            if depth > 0:
+                maxComponentDepths[name] = depth
+        self._maxComponentDepths = maxComponentDepths
+        return self._maxComponentDepths
+
     def setupTable_maxp(self):
         """Make the maxp table."""
         if "maxp" not in self.tables:
@@ -1439,6 +1476,9 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
         maxp.maxComponentElements = max(
             len(g.components) for g in self.allGlyphs.values()
         )
+        maxComponentDepths = self.getMaxComponentDepths()
+        if maxComponentDepths:
+            maxp.maxComponentDepth = max(maxComponentDepths)
 
     def setupTable_post(self):
         """Make a format 2 post table with the compiler's glyph order."""
@@ -1448,7 +1488,10 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
 
         post = self.otf["post"]
         post.formatType = 2.0
-        post.extraNames = []
+        # if we set extraNames = [], it will be automatically computed upon compile as
+        # we do below; if we do it upfront we can skip reloading in postProcessor.
+        post.extraNames = [g for g in self.glyphOrder if g not in standardGlyphOrder]
+
         post.mapping = {}
         post.glyphOrder = self.glyphOrder
 
@@ -1456,6 +1499,10 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
         self.setupTable_glyf()
         if self.ufo.info.openTypeGaspRangeRecords:
             self.setupTable_gasp()
+        self.setupTable_cvt()
+        self.setupTable_fpgm()
+        self.setupTable_prep()
+        self.update_maxp()
 
     def setupTable_glyf(self):
         """Make the glyf table."""
@@ -1469,11 +1516,26 @@ class OutlineTTFCompiler(BaseOutlineCompiler):
 
         hmtx = self.otf.get("hmtx")
         ttGlyphs = self.getCompiledGlyphs()
-        for name in self.glyphOrder:
+        # Sort the glyphs so that simple glyphs are compiled first, and composite
+        # glyphs are compiled later. Otherwise the glyph hashes may not be ready
+        # to calculate when a base glyph of a composite glyph is not in the font yet.
+        maxComponentDepths = self.getMaxComponentDepths()
+        compilation_order = [
+            name
+            for _, name in sorted(
+                [(maxComponentDepths.get(name, 0), name) for name in self.glyphOrder]
+            )
+        ]
+        for name in compilation_order:
             ttGlyph = ttGlyphs[name]
             if ttGlyph.isComposite() and hmtx is not None and self.autoUseMyMetrics:
                 self.autoUseMyMetrics(ttGlyph, name, hmtx)
+            self.compileGlyphInstructions(ttGlyph, name)
             glyf[name] = ttGlyph
+
+        # update various maxp fields based on glyf without needing to compile the font
+        if "maxp" in self.otf:
+            self.otf["maxp"].recalc(self.otf)
 
     @staticmethod
     def autoUseMyMetrics(ttGlyph, glyphName, hmtx):

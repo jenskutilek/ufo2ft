@@ -9,6 +9,7 @@ from fontTools import mtiLib
 from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.feaLib.error import FeatureLibError, IncludedFeaNotFound
 from fontTools.feaLib.parser import Parser
+from fontTools.misc.loggingTools import Timer
 
 from ufo2ft.constants import MTI_FEATURES_PREFIX
 from ufo2ft.featureWriters import (
@@ -17,23 +18,28 @@ from ufo2ft.featureWriters import (
     KernFeatureWriter,
     MarkFeatureWriter,
     ast,
+    isValidFeatureWriter,
     loadFeatureWriters,
 )
 
 logger = logging.getLogger(__name__)
+timer = Timer(logging.getLogger("ufo2ft.timer"), level=logging.DEBUG)
 
 
-def parseLayoutFeatures(font):
+def parseLayoutFeatures(font, includeDir=None):
     """Parse OpenType layout features in the UFO and return a
     feaLib.ast.FeatureFile instance.
+
+    includeDir is an optional directory path to search for included
+    feature files, if omitted the font.path is used. If the latter
+    is also not set, the feaLib Lexer uses the current working directory.
     """
     featxt = font.features.text or ""
     if not featxt:
         return ast.FeatureFile()
     buf = StringIO(featxt)
     ufoPath = font.path
-    includeDir = None
-    if ufoPath is not None:
+    if includeDir is None and ufoPath is not None:
         # The UFO v3 specification says "Any include() statements must be relative to
         # the UFO path, not to the features.fea file itself". We set the `name`
         # attribute on the buffer to the actual feature file path, which feaLib will
@@ -43,6 +49,7 @@ def parseLayoutFeatures(font):
         buf.name = os.path.join(ufoPath, "features.fea")
         includeDir = os.path.dirname(ufoPath)
     glyphNames = set(font.keys())
+    includeDir = os.path.normpath(includeDir) if includeDir else None
     try:
         parser = Parser(buf, glyphNames, includeDir=includeDir)
         doc = parser.parse()
@@ -156,7 +163,15 @@ class FeatureCompiler(BaseFeatureCompiler):
         CursFeatureWriter,
     ]
 
-    def __init__(self, ufo, ttFont=None, glyphSet=None, featureWriters=None, **kwargs):
+    def __init__(
+        self,
+        ufo,
+        ttFont=None,
+        glyphSet=None,
+        featureWriters=None,
+        feaIncludeDir=None,
+        **kwargs,
+    ):
         """
         Args:
           featureWriters: a list of BaseFeatureWriter subclasses or
@@ -165,12 +180,24 @@ class FeatureCompiler(BaseFeatureCompiler):
               under the key "com.github.googlei18n.ufo2ft.featureWriters"
               (see loadFeatureWriters).
             - if that is not found, the default list of writers will be used:
-              [KernFeatureWriter, MarkFeatureWriter]. This generates "kern"
-              (or "dist" for Indic scripts), "mark" and "mkmk" features.
+              (see FeatureCompiler.defaultFeatureWriters, and the individual
+              feature writer classes for the list of features generated).
             If the featureWriters list is empty, no automatic feature is
             generated and only pre-existing features are compiled.
+            The ``featureWriters`` parameter overrides both the writers from
+            the UFO lib and the default writers list. To extend instead of
+            replace the latter, the list can contain a special value ``...``
+            (i.e. the ``ellipsis`` singleton, not the str literal '...')
+            which gets replaced by either the UFO.lib writers or the default
+            ones; thus one can insert additional writers either before or after
+            these.
+          feaIncludeDir: a directory to be used as the include directory for
+            the feature file. If None, the include directory is set to the
+            parent directory of the UFO, provided the UFO has a path.
         """
         BaseFeatureCompiler.__init__(self, ufo, ttFont, glyphSet)
+
+        self.feaIncludeDir = feaIncludeDir
 
         self.initFeatureWriters(featureWriters)
 
@@ -184,10 +211,41 @@ class FeatureCompiler(BaseFeatureCompiler):
                 stacklevel=2,
             )
 
+    def _load_custom_feature_writers(self, featureWriters=None):
+        # Args:
+        #   ufo: Font
+        #   featureWriters: Optional[List[Union[FeatureWriter, EllipsisType]]])
+        # Returns: List[FeatureWriter]
+
+        # by default, load the feature writers from the lib or the default ones;
+        # ellipsis is used as a placeholder so one can optionally insert additional
+        # featureWriters=[w1, ..., w2] either before or after these, or override
+        # them by omitting the ellipsis.
+        if featureWriters is None:
+            featureWriters = [...]
+        result = []
+        seen_ellipsis = False
+        for writer in featureWriters:
+            if writer is ...:
+                if seen_ellipsis:
+                    raise ValueError("ellipsis not allowed more than once")
+                writers = loadFeatureWriters(self.ufo)
+                if writers is not None:
+                    result.extend(writers)
+                else:
+                    result.extend(self.defaultFeatureWriters)
+                seen_ellipsis = True
+            else:
+                klass = writer if isclass(writer) else type(writer)
+                if not isValidFeatureWriter(klass):
+                    raise TypeError(f"Invalid feature writer: {writer!r}")
+                result.append(writer)
+        return result
+
     def initFeatureWriters(self, featureWriters=None):
         """Initialize feature writer classes as specified in the UFO lib.
-        If none are defined in the UFO, the default feature writers are used:
-        currently, KernFeatureWriter and MarkFeatureWriter.
+        If none are defined in the UFO, the default feature writers are used
+        (see FeatureCompiler.defaultFeatureWriters).
         The 'featureWriters' argument can be used to override these.
         The method sets the `self.featureWriters` attribute with the list of
         writers.
@@ -197,10 +255,7 @@ class FeatureCompiler(BaseFeatureCompiler):
         used in the subsequent feature writers to resolve substitutions from
         glyphs with unicodes to their alternates.
         """
-        if featureWriters is None:
-            featureWriters = loadFeatureWriters(self.ufo)
-            if featureWriters is None:
-                featureWriters = self.defaultFeatureWriters
+        featureWriters = self._load_custom_feature_writers(featureWriters)
 
         gsubWriters = []
         others = []
@@ -222,17 +277,24 @@ class FeatureCompiler(BaseFeatureCompiler):
         may override this method to handle the file creation
         in a different way if desired.
         """
-        if self.featureWriters:
-            featureFile = parseLayoutFeatures(self.ufo)
+        with timer("run feature writers"):
+            if self.featureWriters:
+                featureFile = parseLayoutFeatures(self.ufo, self.feaIncludeDir)
 
-            for writer in self.featureWriters:
-                writer.write(self.ufo, featureFile, compiler=self)
+                path = self.ufo.path
+                for writer in self.featureWriters:
+                    try:
+                        writer.write(self.ufo, featureFile, compiler=self)
+                    except FeatureLibError:
+                        if path is None:
+                            self._write_temporary_feature_file(featureFile.asFea())
+                        raise
 
-            # stringify AST to get correct line numbers in error messages
-            self.features = featureFile.asFea()
-        else:
-            # no featureWriters, simply read existing features' text
-            self.features = self.ufo.features.text or ""
+                # stringify AST to get correct line numbers in error messages
+                self.features = featureFile.asFea()
+            else:
+                # no featureWriters, simply read existing features' text
+                self.features = self.ufo.features.text or ""
 
     def writeFeatures(self, outfile):
         if hasattr(self, "features"):
@@ -255,16 +317,20 @@ class FeatureCompiler(BaseFeatureCompiler):
         # if we generated some automatic features, includes have already been
         # resolved, and we work from a string which does't exist on disk
         path = self.ufo.path if not self.featureWriters else None
-        try:
-            addOpenTypeFeaturesFromString(self.ttFont, self.features, filename=path)
-        except FeatureLibError:
-            if path is None:
-                # if compilation fails, create temporary file for inspection
-                data = self.features.encode("utf-8")
-                with NamedTemporaryFile(delete=False) as tmp:
-                    tmp.write(data)
-                logger.error("Compilation failed! Inspect temporary file: %r", tmp.name)
-            raise
+        with timer("build OpenType features"):
+            try:
+                addOpenTypeFeaturesFromString(self.ttFont, self.features, filename=path)
+            except FeatureLibError:
+                if path is None:
+                    self._write_temporary_feature_file(self.features)
+                raise
+
+    def _write_temporary_feature_file(self, features: str) -> None:
+        # if compilation fails, create temporary file for inspection
+        data = features.encode("utf-8")
+        with NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(data)
+        logger.error("Compilation failed! Inspect temporary file: %r", tmp.name)
 
 
 class MtiFeatureCompiler(BaseFeatureCompiler):

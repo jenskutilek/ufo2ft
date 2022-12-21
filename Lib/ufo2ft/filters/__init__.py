@@ -9,6 +9,7 @@ from .base import BaseFilter
 from .cubicToQuadratic import CubicToQuadraticFilter
 from .decomposeComponents import DecomposeComponentsFilter
 from .decomposeTransformedComponents import DecomposeTransformedComponentsFilter
+from .dottedCircleFilter import DottedCircleFilter
 from .explodeColorLayerGlyphs import ExplodeColorLayerGlyphsFilter
 from .flattenComponents import FlattenComponentsFilter
 from .propagateAnchors import PropagateAnchorsFilter
@@ -21,6 +22,7 @@ __all__ = [
     "CubicToQuadraticFilter",
     "DecomposeComponentsFilter",
     "DecomposeTransformedComponentsFilter",
+    "DottedCircleFilter",
     "ExplodeColorLayerGlyphsFilter",
     "FlattenComponentsFilter",
     "PropagateAnchorsFilter",
@@ -66,10 +68,10 @@ def loadFilters(ufo):
             logger.exception("Failed to load filter: %s", pformat(filterDict))
             continue
         filterObj = filterClass(
+            *filterDict.get("args", []),
             include=filterDict.get("include"),
             exclude=filterDict.get("exclude"),
             pre=filterDict.get("pre", False),
-            *filterDict.get("args", []),
             **filterDict.get("kwargs", {}),
         )
         if filterObj.pre:
@@ -85,7 +87,7 @@ def isValidFilter(klass):
     a '__call__' (bound method), with the signature matching the same method
     from the BaseFilter class:
 
-           def __call__(self, font, feaFile, compiler=None)
+           def __call__(self, font, glyphSet=None)
     """
     if not isclass(klass):
         logger.error(f"{klass!r} is not a class")
