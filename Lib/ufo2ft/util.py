@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import importlib
 import logging
 import re
 from copy import deepcopy
 from inspect import currentframe, getfullargspec
-from typing import Set
+from typing import Mapping, Set
 
 from fontTools import subset, ttLib, unicodedata
 from fontTools.designspaceLib import DesignSpaceDocument
@@ -12,6 +14,8 @@ from fontTools.misc.fixedTools import otRound
 from fontTools.misc.transform import Identity, Transform
 from fontTools.pens.reverseContourPen import ReverseContourPen
 from fontTools.pens.transformPen import TransformPen
+
+from ufo2ft.constants import UNICODE_SCRIPT_ALIASES
 
 logger = logging.getLogger(__name__)
 
@@ -103,16 +107,18 @@ def _getNewGlyphFactory(glyph):
     cls = glyph.__class__
     if "name" in getfullargspec(cls.__init__).args:
 
-        def newGlyph(name):
-            return cls(name=name)
+        def newGlyph(name, **kwargs):
+            return cls(name=name, **kwargs)
 
     else:
 
-        def newGlyph(name):
+        def newGlyph(name, **kwargs):
             # use instantiateGlyphObject() to keep any custom sub-element classes
             # https://github.com/googlefonts/ufo2ft/issues/363
             g2 = glyph.layer.instantiateGlyphObject()
             g2.name = name
+            for k, v in kwargs.items():
+                setattr(g2, k, v)
             return g2
 
     return newGlyph
@@ -139,6 +145,21 @@ def _copyGlyph(glyph, glyphFactory=None, reverseContour=False):
     glyph.drawPoints(pointPen)
 
     return copy
+
+
+def _setGlyphMargin(glyph, side, margin):
+    # defcon.Glyph has @property setters for the margins, whereas ufoLib2.Glyph
+    # has regular instance methods
+    assert side in {"left", "right", "top", "bottom"}
+    if hasattr(glyph, f"set{side.title()}Margin"):  # ufoLib2
+        getattr(glyph, f"set{side.title()}Margin")(margin)
+        assert getattr(glyph, f"get{side.title()}Margin")() == margin
+    elif hasattr(glyph, f"{side}Margin"):  # defcon
+        descriptor = getattr(type(glyph), f"{side}Margin")
+        descriptor.__set__(glyph, margin)
+        assert descriptor.__get__(glyph) == margin
+    else:
+        raise NotImplementedError(f"Unsupported Glyph class: {type(glyph)!r}")
 
 
 def deepCopyContours(
@@ -280,7 +301,7 @@ def classifyGlyphs(unicodeFunc, cmap, gsub=None):
         key_or_keys = unicodeFunc(uv)
         if key_or_keys is None:
             neutralGlyphs.add(glyphName)
-        elif isinstance(key_or_keys, (list, set)):
+        elif isinstance(key_or_keys, (list, set, tuple)):
             for key in key_or_keys:
                 glyphSets.setdefault(key, set()).add(glyphName)
         else:
@@ -304,7 +325,7 @@ def unicodeInScripts(uv, scripts):
     False if it does not intersect.
     Return None for 'Common' script ('Zyyy').
     """
-    sx = unicodedata.script_extension(chr(uv))
+    sx = unicodeScriptExtensions(uv)
     if "Zyyy" in sx:
         return None
     return not sx.isdisjoint(scripts)
@@ -578,3 +599,16 @@ def getMaxComponentDepth(glyph, glyphSet, maxComponentDepth=0):
         maxComponentDepth = max(maxComponentDepth, componentDepth)
 
     return maxComponentDepth
+
+
+def unicodeScriptExtensions(
+    codepoint: int, aliases: Mapping[str, str] = UNICODE_SCRIPT_ALIASES
+) -> set[str]:
+    """Returns the Unicode script extensions for a codepoint, optionally
+    aliasing some scripts.
+
+    This allows lookups to contain more than one script. The most prominent case
+    is being able to kern Hiragana and Katakana against each other, Unicode
+    defines "Hrkt" as an alias for both scripts.
+    """
+    return {aliases.get(s, s) for s in unicodedata.script_extension(chr(codepoint))}
